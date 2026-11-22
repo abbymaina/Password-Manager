@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keychain</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #eceef1;
+    --paper-raised: #f8f9fb;
+    --ink: #1b2430;
+    --ink-soft: #69748a;
+    --line: #d3d8e0;
+    --line-soft: #e2e6ec;
+    --disk: #161c26;
+    --disk-raised: #1e2634;
+    --disk-line: #2c3545;
+    --disk-ink: #9fadc0;
+    --disk-bright: #e3e9f1;
+    --verified: #2f6f5e;
+    --verified-lit: #8fd3bd;
+    --alert: #9e3024;
+    --alert-lit: #e0a69c;
+    --sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--ink);
+    background: var(--paper);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------------- frame ---------------- */
+
+  .frame {
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 24px;
+    background: var(--disk);
+    color: var(--disk-bright);
+  }
+
+  .bar h1 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .bar .sub { font-size: 13px; color: var(--disk-ink); }
+  .bar .spacer { flex: 1; }
+
+  .pill {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 3px 11px;
+    border-radius: 2px;
+    border: 1px solid var(--disk-line);
+    color: var(--disk-ink);
+  }
+
+  .pill[data-on="true"] { color: var(--verified-lit); border-color: var(--verified); }
+
+  .panes {
+    display: grid;
+    grid-template-columns: minmax(0, 46fr) minmax(0, 54fr);
+    min-height: 0;
+  }
+
+  .pane {
+    overflow-y: auto;
+    padding: 28px 30px 44px;
+  }
+
+  .pane-human > .inner { max-width: 560px; }
+
+  .pane-disk {
+    background: var(--disk);
+    color: var(--disk-ink);
+  }
+
+  /* ---------------- type ---------------- */
+
+  h2 {
+    margin: 0 0 4px;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .pane-disk h2 { color: var(--disk-bright); }
+
+  .lede {
+    margin: 0 0 20px;
+    color: var(--ink-soft);
+    font-size: 13.5px;
+    max-width: 50ch;
+  }
+
+  .pane-disk .lede { color: var(--disk-ink); max-width: 56ch; }
+
+  .block { margin-bottom: 28px; }
+  .block:last-child { margin-bottom: 0; }
+
+  .block > h3 {
+    margin: 0 0 9px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-soft);
+  }
+
+  .pane-disk .block > h3 { color: var(--disk-ink); }
+
+  /* ---------------- forms ---------------- */
+
+  .field { margin-bottom: 12px; }
+
+  .field > label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    margin-bottom: 4px;
+  }
+
+  .counter { font-family: var(--mono); font-size: 11.5px; }
+  .counter[data-over="true"] { color: var(--alert); font-weight: 500; }
+
+  .control { position: relative; display: flex; }
+
+  input[type="text"], input[type="password"] {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--mono);
+    font-size: 14px;
+    padding: 9px 11px;
+    color: var(--ink);
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+  }
+
+  input:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 1px;
+    border-color: var(--ink);
+  }
+
+  input[data-invalid="true"] { border-color: var(--alert); }
+
+  .control .inline-btn {
+    flex: none;
+    margin-left: 6px;
+    font-size: 12.5px;
+    padding: 0 11px;
+    background: transparent;
+    color: var(--ink-soft);
+    border: 1px solid var(--line);
+  }
+
+  .control .inline-btn:hover { color: var(--ink); border-color: var(--ink); background: transparent; }
+
+  .actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+
+  button {
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 500;
+    padding: 9px 16px;
+    border-radius: 2px;
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: var(--paper);
+    cursor: pointer;
+  }
+
+  button:hover { background: #26323f; }
+  button:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button:disabled:hover { background: var(--ink); }
+
+  .ghost {
+    background: transparent;
+    color: var(--ink);
+    border-color: var(--line);
+  }
+
+  .ghost:hover { background: rgba(27, 36, 48, .06); color: var(--ink); }
+
+  .bar button {
+    border-color: var(--disk-line);
+    background: transparent;
+    color: var(--disk-bright);
+    font-size: 13px;
+    padding: 5px 12px;
+  }
+
+  .bar button:hover { background: var(--disk-raised); }
+
+  /* ---------------- message ---------------- */
+
+  .msg {
+    margin: 0 0 20px;
+    padding: 12px 14px;
+    border-left: 3px solid var(--ink-soft);
+    background: var(--paper-raised);
+    font-size: 13.5px;
+  }
+
+  .msg[data-kind="good"] { border-left-color: var(--verified); }
+  .msg[data-kind="bad"] { border-left-color: var(--alert); color: var(--alert); }
+  .msg[hidden] { display: none; }
+  .msg p { margin: 0; }
+
+  .caught {
+    display: inline-block;
+    margin-top: 9px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 2px 8px;
+    background: var(--paper);
+  }
+
+  /* ---------------- revealed password ---------------- */
+
+  .reveal {
+    margin-top: 12px;
+    background: var(--disk);
+    border-radius: 2px;
+    padding: 12px 14px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 3px 12px;
+    align-items: center;
+  }
+
+  .reveal .who {
+    grid-column: 1;
+    color: var(--disk-ink);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+
+  .reveal .val {
+    grid-column: 1;
+    color: var(--verified-lit);
+    font-family: var(--mono);
+    font-size: 15px;
+    word-break: break-all;
+  }
+
+  .reveal .copy {
+    grid-row: 1 / span 2;
+    grid-column: 2;
+    font-size: 12.5px;
+    padding: 5px 11px;
+    background: transparent;
+    color: var(--disk-ink);
+    border-color: var(--disk-line);
+  }
+
+  .reveal .copy:hover { background: var(--disk-raised); color: var(--disk-bright); }
+
+  /* ---------------- session list ---------------- */
+
+  .domains { list-style: none; margin: 0; padding: 0; }
+
+  .domains li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .domains .pick {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 13.5px;
+    padding: 8px 0;
+    background: transparent;
+    border: 0;
+    color: var(--ink);
+    word-break: break-all;
+    border-radius: 0;
+  }
+
+  .domains .pick:hover { background: transparent; color: var(--verified); }
+
+  .domains .drop {
+    flex: none;
+    font-size: 12px;
+    padding: 3px 9px;
+    background: transparent;
+    color: var(--ink-soft);
+    border-color: var(--line);
+  }
+
+  .domains .drop:hover { color: var(--alert); border-color: var(--alert); background: transparent; }
+
+  .empty {
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    margin: 0;
+    padding: 4px 0 0;
+    max-width: 48ch;
+  }
+
+  .pane-disk .empty { color: var(--disk-ink); }
+
+  /* ---------------- disk records ---------------- */
+
+  .file-row {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--disk-bright);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--disk-line);
+  }
+
+  .file-row .stat { margin-left: auto; color: var(--disk-ink); }
+
+  .rec {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--disk-line);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+
+  .rec:hover { background: rgba(255, 255, 255, .025); }
+
+  .rec .slot { color: var(--disk-bright); }
+  .rec .data { color: var(--disk-ink); grid-column: 1; }
+
+  .rec .slot, .rec .data {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rec.is-open .slot, .rec.is-open .data { white-space: normal; word-break: break-all; }
+
+  .rec .count {
+    grid-row: 1 / span 2;
+    grid-column: 2;
+    align-self: center;
+    color: var(--disk-ink);
+    font-size: 11.5px;
+    white-space: nowrap;
+    border: 1px solid var(--disk-line);
+    border-radius: 2px;
+    padding: 2px 7px;
+  }
+
+  @keyframes land {
+    from { opacity: 0; transform: translateY(-5px); background: rgba(143, 211, 189, .16); }
+    to   { opacity: 1; transform: none; background: transparent; }
+  }
+
+  .rec.is-new { animation: land .45s ease-out; }
+
+  .uniform {
+    margin: 10px 0 0;
+    font-size: 12.5px;
+    color: var(--disk-ink);
+    max-width: 56ch;
+  }
+
+  .uniform b { color: var(--verified-lit); font-weight: 500; }
+
+  .checksum {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--verified-lit);
+    word-break: break-all;
+    padding: 11px 13px;
+    background: var(--disk-raised);
+    border-radius: 2px;
+  }
+
+  /* ---------------- attacks ---------------- */
+
+  .attacks { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  .attacks button {
+    background: transparent;
+    color: var(--alert-lit);
+    border-color: #6b2d25;
+    font-size: 13px;
+  }
+
+  .attacks button:hover { background: #2a1b19; }
+  .attacks button.repair { color: var(--verified-lit); border-color: var(--verified); }
+  .attacks button.repair:hover { background: #17241f; }
+
+  .toast {
+    position: fixed;
+    left: 24px;
+    bottom: 24px;
+    background: var(--ink);
+    color: var(--paper);
+    font-size: 13px;
+    padding: 9px 16px;
+    border-radius: 2px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .18s;
+  }
+
+  .toast.show { opacity: 1; }
+
+  /* ---------------- responsive ---------------- */
+
+  @media (max-width: 880px) {
+    html, body { height: auto; }
+    .frame { height: auto; }
+    .panes { grid-template-columns: 1fr; }
+    .pane { overflow-y: visible; padding: 24px 18px 36px; }
+    .pane-human > .inner { max-width: none; }
+    .bar { flex-wrap: wrap; gap: 10px; padding: 13px 18px; }
+    .bar .sub { width: 100%; order: 3; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rec.is-new { animation: none; }
+    .toast { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="frame">
+
+  <header class="bar">
+    <h1>Keychain</h1>
+    <span class="sub">ICS 3201 password manager</span>
+    <span class="spacer"></span>
+    <span class="pill" id="pill" data-on="false">locked</span>
+    <button id="btn-lock" hidden>Lock</button>
+  </header>
+
+  <div class="panes">
+
+    <!-- =============== what you see =============== -->
+    <section class="pane pane-human">
+      <div class="inner">
+
+        <div class="msg" id="msg" hidden></div>
+
+        <!-- gate -->
+        <div id="gate">
+          <h2 id="gate-title">Create a vault</h2>
+          <p class="lede" id="gate-lede">
+            Choose a master password. It is never written to disk, and neither is anything
+            derived from it. Lose it and the vault cannot be opened.
+          </p>
+          <div class="field">
+            <label for="master">Master password</label>
+            <div class="control">
+              <input id="master" type="password" autocomplete="off" spellcheck="false">
+              <button class="inline-btn" id="see-master" type="button" aria-label="Show master password">Show</button>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="btn-gate">Create vault</button>
+          </div>
+        </div>
+
+        <!-- main -->
+        <div id="main" hidden>
+
+          <div class="block">
+            <h2>Add an entry</h2>
+            <p class="lede">The password is padded to a fixed length, encrypted, and bound to this domain.</p>
+
+            <div class="field">
+              <label for="d-set">Domain</label>
+              <div class="control">
+                <input id="d-set" type="text" placeholder="www.google.com" autocomplete="off" spellcheck="false">
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="p-set">
+                <span>Password to store</span>
+                <span class="counter" id="pw-count" data-over="false">0 / 64 bytes</span>
+              </label>
+              <div class="control">
+                <input id="p-set" type="password" autocomplete="off" spellcheck="false">
+                <button class="inline-btn" id="see-pw" type="button" aria-label="Show password">Show</button>
+                <button class="inline-btn" id="gen-pw" type="button">Generate</button>
+              </div>
+            </div>
+
+            <div class="actions">
+              <button id="btn-set">Save entry</button>
+            </div>
+          </div>
+
+          <div class="block">
+            <h2>Look one up</h2>
+            <p class="lede">Type the domain. There is no browsable list, by design.</p>
+            <div class="field">
+              <label for="d-get">Domain</label>
+              <div class="control">
+                <input id="d-get" type="text" autocomplete="off" spellcheck="false">
+                <button class="inline-btn" id="btn-get" type="button">Look up</button>
+              </div>
+            </div>
+            <div id="reveal"></div>
+          </div>
+
+          <div class="block">
+            <h3>Added or looked up this session</h3>
+            <ul class="domains" id="domains"></ul>
+            <p class="empty" id="domains-empty">
+              Nothing yet. Domain names are stored as HMAC values, so the vault cannot list
+              them back &mdash; this is only what passed through this session.
+            </p>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- =============== what is stored =============== -->
+    <section class="pane pane-disk">
+      <h2>On disk</h2>
+      <p class="lede">
+        Exactly what an adversary holding these files would see. No domain name and no
+        password appears here in the clear.
+      </p>
+
+      <div class="block">
+        <div class="file-row">
+          <span>vault.json</span>
+          <span class="stat" id="disk-stat"></span>
+        </div>
+        <div id="records"></div>
+        <p class="empty" id="records-empty">Nothing stored yet.</p>
+        <p class="uniform" id="uniform" hidden></p>
+      </div>
+
+      <div class="block">
+        <h3>Trusted checksum &mdash; kept outside the vault</h3>
+        <div class="checksum" id="checksum">&mdash;</div>
+      </div>
+
+      <div class="block">
+        <h3>Simulate an attack, then unlock again</h3>
+        <div class="attacks">
+          <button data-attack="swap">Swap two records</button>
+          <button data-attack="tamper">Flip one byte</button>
+          <button data-attack="rollback">Roll back to an older vault</button>
+          <button data-attack="restore" class="repair">Repair the vault</button>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const enc = new TextEncoder();
+  const MAX_BYTES = 64;
+
+  let knownSlots = new Set();
+  let firstPaint = true;
+
+  /* ---- which defense rejected the vault ---- */
+  function defenseFor(error) {
+    if (/Integrity check failed/i.test(error)) return "caught by the SHA-256 integrity check";
+    if (/failed authentication/i.test(error)) return "caught by AES-GCM associated data";
+    if (/Incorrect master password/i.test(error)) return "caught by the AES-GCM verifier";
+    if (/unexpected length|invalid length|malformed|truncated/i.test(error)) return "caught by the padding check";
+    return null;
+  }
+
+  function say(html, kind, caught) {
+    const el = $("msg");
+    el.innerHTML = "<p>" + html + "</p>" +
+      (caught ? '<span class="caught">' + caught + "</span>" : "");
+    el.dataset.kind = kind || "";
+    el.hidden = false;
+  }
+  function clearSay() { $("msg").hidden = true; }
+
+  let toastTimer;
+  function toast(text) {
+    const t = $("toast");
+    t.textContent = text;
+    t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove("show"), 1600);
+  }
+
+  async function call(path, body) {
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {})
+    });
+    return res.json();
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  /* ---- password field helpers ---- */
+
+  function updateCount() {
+    const n = enc.encode($("p-set").value).length;
+    const over = n > MAX_BYTES;
+    const c = $("pw-count");
+    c.textContent = n + " / " + MAX_BYTES + " bytes";
+    c.dataset.over = String(over);
+    $("p-set").dataset.invalid = String(over);
+    $("btn-set").disabled = over;
+    return over;
+  }
+
+  function toggleVisibility(input, button) {
+    const showing = input.type === "text";
+    input.type = showing ? "password" : "text";
+    button.textContent = showing ? "Show" : "Hide";
+  }
+
+  function generatePassword(len) {
+    // Printable ASCII, so the byte length equals the character length.
+    const alphabet = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%^&*-_=+?";
+    const bytes = new Uint32Array(len);
+    crypto.getRandomValues(bytes);
+    let out = "";
+    for (let i = 0; i < len; i++) out += alphabet[bytes[i] % alphabet.length];
+    return out;
+  }
+
+  /* ---- render ---- */
+
+  function render(state) {
+    const unlocked = state.unlocked;
+
+    $("pill").textContent = unlocked ? "unlocked" : "locked";
+    $("pill").dataset.on = String(unlocked);
+    $("btn-lock").hidden = !unlocked;
+    $("gate").hidden = unlocked;
+    $("main").hidden = !unlocked;
+
+    if (!unlocked) {
+      $("gate-title").textContent = state.vaultExists ? "Unlock your vault" : "Create a vault";
+      $("gate-lede").textContent = state.vaultExists
+        ? "The trusted checksum is verified and every record is authenticated before anything is decrypted."
+        : "Choose a master password. It is never written to disk, and neither is anything derived from it. Lose it and the vault cannot be opened.";
+      $("btn-gate").textContent = state.vaultExists ? "Unlock vault" : "Create vault";
+    }
+
+    // session domains
+    const list = $("domains");
+    list.innerHTML = "";
+    state.domains.forEach((d) => {
+      const li = document.createElement("li");
+
+      const pick = document.createElement("button");
+      pick.className = "pick";
+      pick.type = "button";
+      pick.textContent = d;
+      pick.title = "Look this one up";
+      pick.onclick = () => { $("d-get").value = d; $("btn-get").click(); };
+
+      const drop = document.createElement("button");
+      drop.className = "drop";
+      drop.type = "button";
+      drop.textContent = "Remove";
+      drop.onclick = () => remove(d);
+
+      li.appendChild(pick);
+      li.appendChild(drop);
+      list.appendChild(li);
+    });
+    $("domains-empty").hidden = state.domains.length > 0;
+
+    // disk
+    const disk = state.disk;
+    const recs = disk.records || [];
+    const holder = $("records");
+    holder.innerHTML = "";
+    const slotsNow = new Set();
+
+    recs.forEach((r) => {
+      slotsNow.add(r.slot);
+      const row = document.createElement("div");
+      row.className = "rec";
+      if (!firstPaint && !knownSlots.has(r.slot)) row.classList.add("is-new");
+      row.title = "Click to expand";
+      row.onclick = () => row.classList.toggle("is-open");
+
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      slot.textContent = r.slot;
+
+      const data = document.createElement("div");
+      data.className = "data";
+      data.textContent = r.data;
+
+      const count = document.createElement("div");
+      count.className = "count";
+      count.textContent = r.length + " ch";
+
+      row.appendChild(slot);
+      row.appendChild(count);
+      row.appendChild(data);
+      holder.appendChild(row);
+    });
+
+    knownSlots = slotsNow;
+    firstPaint = false;
+
+    $("records-empty").hidden = recs.length > 0;
+
+    const sizes = new Set(recs.map((r) => r.length));
+    const uniform = $("uniform");
+    if (recs.length > 1 && sizes.size === 1) {
+      uniform.innerHTML = "All " + recs.length + " records are <b>" + [...sizes][0] +
+        " characters</b>, whatever the password length. Nothing here reveals how long any password is.";
+      uniform.hidden = false;
+    } else {
+      uniform.hidden = true;
+    }
+
+    const bits = [];
+    if (recs.length) bits.push(recs.length + (recs.length === 1 ? " entry" : " entries"));
+    if (disk.bytesOnDisk) bits.push(disk.bytesOnDisk.toLocaleString() + " bytes");
+    $("disk-stat").textContent = bits.join(" ");
+
+    $("checksum").textContent = disk.checksum || "—";
+  }
+
+  function handle(data) {
+    if (data.state) render(data.state);
+    return data;
+  }
+
+  async function refresh() {
+    const res = await fetch("/api/state");
+    render(await res.json());
+  }
+
+  /* ---- actions ---- */
+
+  $("see-master").onclick = () => toggleVisibility($("master"), $("see-master"));
+  $("see-pw").onclick = () => toggleVisibility($("p-set"), $("see-pw"));
+
+  $("gen-pw").onclick = () => {
+    $("p-set").value = generatePassword(24);
+    $("p-set").type = "text";
+    $("see-pw").textContent = "Hide";
+    updateCount();
+  };
+
+  $("p-set").addEventListener("input", updateCount);
+
+  $("btn-gate").onclick = async () => {
+    const pw = $("master").value;
+    const creating = $("btn-gate").textContent === "Create vault";
+    const data = handle(await call(creating ? "/api/create" : "/api/unlock", { password: pw }));
+    $("master").value = "";
+    $("master").type = "password";
+    $("see-master").textContent = "Show";
+    if (data.ok) {
+      if (creating) clearSay();
+      else say("Vault unlocked. Checksum verified and every record authenticated.", "good");
+    } else {
+      say("<strong>Rejected.</strong> " + esc(data.error), "bad", defenseFor(data.error));
+    }
+  };
+
+  $("btn-lock").onclick = async () => {
+    handle(await call("/api/lock"));
+    $("reveal").innerHTML = "";
+    clearSay();
+  };
+
+  $("btn-set").onclick = async () => {
+    if (updateCount()) {
+      return say("That password is longer than 64 bytes, which is the maximum this keychain stores.", "bad");
+    }
+    const domain = $("d-set").value.trim();
+    const password = $("p-set").value;
+    if (!domain) return say("Enter a domain.", "bad");
+
+    const data = handle(await call("/api/set", { domain, password }));
+    if (data.ok) {
+      $("d-set").value = "";
+      $("p-set").value = "";
+      $("p-set").type = "password";
+      $("see-pw").textContent = "Show";
+      updateCount();
+      say("Saved <strong>" + esc(domain) + "</strong>. Its ciphertext is on the right.", "good");
+      $("d-set").focus();
+    } else {
+      say(esc(data.error), "bad");
+    }
+  };
+
+  $("btn-get").onclick = async () => {
+    const domain = $("d-get").value.trim();
+    if (!domain) return say("Enter a domain to look up.", "bad");
+
+    const data = handle(await call("/api/get", { domain }));
+    const box = $("reveal");
+    if (!data.ok) {
+      box.innerHTML = "";
+      return say("<strong>Rejected.</strong> " + esc(data.error), "bad", defenseFor(data.error));
+    }
+    if (data.value === null) {
+      box.innerHTML = "";
+      return say("No entry stored for <strong>" + esc(domain) + "</strong>.", "");
+    }
+    clearSay();
+    box.innerHTML =
+      '<div class="reveal">' +
+        '<span class="who"></span>' +
+        '<span class="val"></span>' +
+        '<button class="copy" type="button">Copy</button>' +
+      "</div>";
+    box.querySelector(".who").textContent = domain;
+    box.querySelector(".val").textContent = data.value;
+    box.querySelector(".copy").onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(data.value);
+        toast("Password copied");
+      } catch (e) {
+        toast("Copy blocked by the browser");
+      }
+    };
+  };
+
+  async function remove(domain) {
+    const data = handle(await call("/api/remove", { domain }));
+    if (!data.ok) return say(esc(data.error), "bad");
+    say(data.removed
+      ? "Removed <strong>" + esc(domain) + "</strong>."
+      : "No entry stored for " + esc(domain) + ".", data.removed ? "good" : "");
+  }
+
+  document.querySelectorAll("[data-attack]").forEach((btn) => {
+    btn.onclick = async () => {
+      const kind = btn.dataset.attack;
+      const path = kind === "restore" ? "/api/restore" : "/api/attack/" + kind;
+      const data = handle(await call(path));
+      $("reveal").innerHTML = "";
+      if (!data.ok) return say(esc(data.error), "bad");
+      if (kind === "restore") {
+        say("Vault repaired. Unlock it again.", "good");
+      } else {
+        say(esc(data.note) + " The vault is locked &mdash; unlock it to see what happens.", "");
+      }
+      $("master").focus();
+    };
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const id = document.activeElement && document.activeElement.id;
+    if (id === "master") $("btn-gate").click();
+    else if (id === "d-set" || id === "p-set") $("btn-set").click();
+    else if (id === "d-get") $("btn-get").click();
+  });
+
+  updateCount();
+  refresh();
+})();
+</script>
+</body>
+</html>
