@@ -46,7 +46,10 @@ function pad(s, n) {
 
 (async () => {
   // Start from a clean vault so the demo is reproducible.
-  fs.rmSync(VAULT_DIR, { recursive: true, force: true });
+  // (Only the vault itself is removed; backups such as legacy-json/ are kept.)
+  for (const f of ["vault.db", "vault.db-journal", "trusted-checksum.txt"]) {
+    fs.rmSync(path.join(VAULT_DIR, f), { force: true });
+  }
   const store = new VaultStore(VAULT_DIR);
 
   const keychain = await Keychain.init(MASTER);

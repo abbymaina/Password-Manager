@@ -86,6 +86,15 @@ function inspectDisk() {
   };
 }
 
+function getState() {
+  return {
+    vaultExists: vaultExists(),
+    unlocked: keychain !== null,
+    domains: keychain ? sessionDomains : [],
+    disk: inspectDisk()
+  };
+}
+
 function trackDomain(name) {
   if (!sessionDomains.includes(name)) sessionDomains.push(name);
 }
@@ -94,21 +103,15 @@ function trackDomain(name) {
 
 const routes = {
 
-  "GET /api/state": async () => ({
-    vaultExists: vaultExists(),
-    unlocked: keychain !== null,
-    domains: keychain ? sessionDomains : [],
-    disk: inspectDisk()
-  }),
+  "GET /api/state": async () => getState(),
 
   "POST /api/create": async (body) => {
     if (!body.password) throw "Enter a master password.";
     keychain = await Keychain.init(body.password);
     sessionDomains = [];
-    // Clear any stale attack artifacts from a previous run.
-    store.clearSnapshots();
     await persist();
-    store.clearSnapshots();   // a brand-new vault has no earlier version
+    // A brand-new vault has no earlier version to roll back to.
+    store.clearSnapshots();
     store.setSnapshot("known-good", ...(await keychain.dump()));
     return { unlocked: true };
   },
@@ -253,30 +256,20 @@ const server = http.createServer((req, res) => {
     if (raw) {
       try { body = JSON.parse(raw); } catch (e) { body = {}; }
     }
+    let payload;
     try {
       const result = await routes[key](body);
-      const state = {
-        vaultExists: vaultExists(),
-        unlocked: keychain !== null,
-        domains: keychain ? sessionDomains : [],
-        disk: inspectDisk()
-      };
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, ...result, state }));
+      payload = { ok: true, ...result, state: getState() };
     } catch (e) {
       // The library throws strings; everything else stringifies fine too.
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
+      payload = {
         ok: false,
         error: typeof e === "string" ? e : (e && e.message) || String(e),
-        state: {
-          vaultExists: vaultExists(),
-          unlocked: keychain !== null,
-          domains: keychain ? sessionDomains : [],
-          disk: inspectDisk()
-        }
-      }));
+        state: getState()
+      };
     }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(payload));
   });
 });
 
