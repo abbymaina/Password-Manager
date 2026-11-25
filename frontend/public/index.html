@@ -148,7 +148,7 @@
 
   .control { position: relative; display: flex; }
 
-  input[type="text"], input[type="password"] {
+  input[type="text"], input[type="password"], select {
     flex: 1;
     min-width: 0;
     font-family: var(--mono);
@@ -160,7 +160,7 @@
     border-radius: 2px;
   }
 
-  input:focus-visible {
+  input:focus-visible, select:focus-visible {
     outline: 2px solid var(--ink);
     outline-offset: 1px;
     border-color: var(--ink);
@@ -486,6 +486,18 @@
             derived from it. Lose it and the vault cannot be opened.
           </p>
           <div class="field">
+            <label for="vault-pick">Vault</label>
+            <div class="control">
+              <select id="vault-pick"></select>
+            </div>
+          </div>
+          <div class="field" id="new-name-field" hidden>
+            <label for="vault-name">Name for the new vault</label>
+            <div class="control">
+              <input id="vault-name" type="text" placeholder="e.g. personal" autocomplete="off" spellcheck="false" maxlength="32">
+            </div>
+          </div>
+          <div class="field">
             <label for="master">Master password</label>
             <div class="control">
               <input id="master" type="password" autocomplete="off" spellcheck="false">
@@ -676,21 +688,38 @@
 
   /* ---- render ---- */
 
+  const NEW_VAULT = "__new__";
+  let wantNewVault = false;   // "+ New vault…" picked in the dropdown
+  let lastState = null;
+
+  function creatingVault(state) {
+    return wantNewVault || state.vaults.length === 0;
+  }
+
   function render(state) {
+    lastState = state;
     const unlocked = state.unlocked;
 
-    $("pill").textContent = unlocked ? "unlocked" : "locked";
+    $("pill").textContent = (state.current ? state.current + " · " : "") + (unlocked ? "unlocked" : "locked");
     $("pill").dataset.on = String(unlocked);
     $("btn-lock").hidden = !unlocked;
     $("gate").hidden = unlocked;
     $("main").hidden = !unlocked;
 
     if (!unlocked) {
-      $("gate-title").textContent = state.vaultExists ? "Unlock your vault" : "Create a vault";
-      $("gate-lede").textContent = state.vaultExists
-        ? "The trusted checksum is verified and every record is authenticated before anything is decrypted."
-        : "Choose a master password. It is never written to disk, and neither is anything derived from it. Lose it and the vault cannot be opened.";
-      $("btn-gate").textContent = state.vaultExists ? "Unlock vault" : "Create vault";
+      const creating = creatingVault(state);
+      const pick = $("vault-pick");
+      pick.innerHTML = "";
+      state.vaults.forEach((v) => pick.add(new Option(v, v)));
+      pick.add(new Option("+ New vault…", NEW_VAULT));
+      pick.value = creating ? NEW_VAULT : state.current;
+      $("new-name-field").hidden = !creating;
+
+      $("gate-title").textContent = creating ? "Create a vault" : "Unlock “" + state.current + "”";
+      $("gate-lede").textContent = creating
+        ? "Name it and choose a master password. The password is never written to disk, and neither is anything derived from it. Lose it and the vault cannot be opened."
+        : "The trusted checksum is verified and every record is authenticated before anything is decrypted.";
+      $("btn-gate").textContent = creating ? "Create vault" : "Unlock vault";
     }
 
     // session domains
@@ -798,15 +827,38 @@
 
   $("p-set").addEventListener("input", updateCount);
 
+  $("vault-pick").onchange = async () => {
+    const choice = $("vault-pick").value;
+    clearSay();
+    if (choice === NEW_VAULT) {
+      wantNewVault = true;
+      render(lastState);
+      $("vault-name").focus();
+      return;
+    }
+    wantNewVault = false;
+    const data = handle(await call("/api/select", { vault: choice }));
+    if (!data.ok) say(esc(data.error), "bad");
+    $("master").focus();
+  };
+
   $("btn-gate").onclick = async () => {
     const pw = $("master").value;
-    const creating = $("btn-gate").textContent === "Create vault";
-    const data = handle(await call(creating ? "/api/create" : "/api/unlock", { password: pw }));
+    const creating = creatingVault(lastState);
+    const body = creating
+      ? { vault: $("vault-name").value.trim().toLowerCase(), password: pw }
+      : { password: pw };
+    const data = handle(await call(creating ? "/api/create" : "/api/unlock", body));
     $("master").value = "";
     $("master").type = "password";
     $("see-master").textContent = "Show";
     if (data.ok) {
-      if (creating) clearSay();
+      if (creating) {
+        wantNewVault = false;
+        $("vault-name").value = "";
+        render(data.state);
+        say("Created the vault <strong>" + esc(data.state.current) + "</strong>. Add your first entry.", "good");
+      }
       else say("Vault unlocked. Checksum verified and every record authenticated.", "good");
     } else {
       say("<strong>Rejected.</strong> " + esc(data.error), "bad", defenseFor(data.error));
@@ -901,7 +953,7 @@
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
     const id = document.activeElement && document.activeElement.id;
-    if (id === "master") $("btn-gate").click();
+    if (id === "master" || id === "vault-name") $("btn-gate").click();
     else if (id === "d-set" || id === "p-set") $("btn-set").click();
     else if (id === "d-get") $("btn-get").click();
   });

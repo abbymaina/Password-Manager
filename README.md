@@ -37,18 +37,22 @@ To use the password manager in a browser:
 npm start        # serves the app at http://localhost:3000
 ```
 
-Open <http://localhost:3000>. On the first visit, choose a master password to create a new
-vault. Stop the server with Ctrl+C.
+Open <http://localhost:3000>. Pick a vault from the **Vault** list and unlock it, or pick
+**+ New vault…**, give it a name and choose its master password. Each vault has its own
+master password and entries. Stop the server with Ctrl+C.
 
-To start with sample data, stop the server and run:
+To create or reset the `demo` vault with sample data, run the command below. It only touches
+`demo`; your other vaults are left alone. If the app has `demo` selected, switch to another
+vault or stop the server first.
 
 ```
 npm run seed              # master password: demo1234
 npm run seed -- mypw      # or choose your own
 ```
 
-The vault is saved in a SQLite database, `frontend/vault/vault.db`. To start over, stop the
-server and delete the `frontend/vault/` folder. See
+Each vault is saved in its own folder, `frontend/vault/<name>/`, as a SQLite database
+(`vault.db`) plus its trusted checksum. To delete a vault, stop the server and delete its
+folder. See
 [frontend/README.md](frontend/README.md) for more on the web app.
 
 ## Using the library
@@ -125,8 +129,8 @@ the checksum, and the checksum alone is enough to detect a rollback.
 `crypto` and `sqlite` modules. It wraps the library and adds a storage layer
 (`frontend/db.js`):
 
-- `frontend/vault/vault.db` is a SQLite database that holds the output of `dump()[0]`,
-  split into tables:
+- `frontend/vault/<name>/vault.db` is a SQLite database (one per vault) that holds the
+  output of `dump()[0]`, split into tables:
 
   | Table | Contents |
   | --- | --- |
@@ -136,12 +140,12 @@ the checksum, and the checksum alone is enough to detect a rollback.
 
   On every load the server rebuilds the exact `dump()` string from these rows, and every
   save checks that the rebuilt string matches, so the checksum still lines up.
-- `frontend/vault/trusted-checksum.txt` holds `dump()[1]` and is kept **outside** the
+- `frontend/vault/<name>/trusted-checksum.txt` holds `dump()[1]` and is kept **outside** the
   database. It stands in for the trusted storage that the rollback defense assumes. If it
   were stored in the same database, an attacker who rolled the database back would roll
   back the checksum with it.
 
-You can open the database with any SQLite tool (for example `sqlite3 frontend/vault/vault.db
+You can open the database with any SQLite tool (for example `sqlite3 frontend/vault/demo/vault.db
 "SELECT * FROM records"`). It contains only HMACs and ciphertexts, the same data an attacker
 would see.
 

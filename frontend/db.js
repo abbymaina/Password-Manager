@@ -224,4 +224,36 @@ class VaultStore {
   }
 }
 
-module.exports = { VaultStore };
+/* ---- several vaults, one folder each: frontend/vault/<name>/ ---- */
+
+const NAME_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+
+function isValidName(name) {
+  return typeof name === "string" && NAME_PATTERN.test(name);
+}
+
+/** Names of the vaults under root, i.e. the subfolders that contain a vault.db. */
+function listVaults(root) {
+  if (!fs.existsSync(root)) return [];
+  return fs.readdirSync(root, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && isValidName(d.name) &&
+                   fs.existsSync(path.join(root, d.name, "vault.db")))
+    .map((d) => d.name)
+    .sort();
+}
+
+/**
+ * Earlier versions kept a single vault directly in root. Move it into
+ * root/demo/ so it becomes one named vault among others.
+ */
+function migrateSingleVault(root, name = "demo") {
+  const loose = ["vault.db", "vault.db-journal", "trusted-checksum.txt", "legacy-json"]
+    .filter((f) => fs.existsSync(path.join(root, f)));
+  if (!loose.includes("vault.db")) return;
+  const dest = path.join(root, name);
+  fs.mkdirSync(dest, { recursive: true });
+  for (const f of loose) fs.renameSync(path.join(root, f), path.join(dest, f));
+  console.log(`  Moved the existing vault to ${dest}`);
+}
+
+module.exports = { VaultStore, isValidName, listVaults, migrateSingleVault };

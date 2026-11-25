@@ -1,12 +1,13 @@
 "use strict";
 
 /*
- * Fills the vault with demo data, so a demo does not start with typing.
+ * Fills the "demo" vault with demo data, so a demo does not start with typing.
+ * Only frontend/vault/demo/ is touched; any other vaults are left alone.
  *
  * Run:  npm run seed          (master password: demo1234)
  *       npm run seed -- mypassword
  *
- * Then: npm start, and unlock with that password.
+ * Then: npm start, pick "demo", and unlock with that password.
  *
  * Not part of the submission.
  */
@@ -15,9 +16,10 @@ const fs = require("fs");
 const path = require("path");
 
 const { Keychain } = require("../password-manager");
-const { VaultStore } = require("./db");
+const { VaultStore, migrateSingleVault } = require("./db");
 
-const VAULT_DIR = path.join(__dirname, "vault");
+const VAULT_ROOT = path.join(__dirname, "vault");
+const VAULT_DIR = path.join(VAULT_ROOT, "demo");
 
 const MASTER = process.argv[2] || "demo1234";
 
@@ -47,6 +49,7 @@ function pad(s, n) {
 (async () => {
   // Start from a clean vault so the demo is reproducible.
   // (Only the vault itself is removed; backups such as legacy-json/ are kept.)
+  migrateSingleVault(VAULT_ROOT);
   for (const f of ["vault.db", "vault.db-journal", "trusted-checksum.txt"]) {
     fs.rmSync(path.join(VAULT_DIR, f), { force: true });
   }
@@ -79,7 +82,7 @@ function pad(s, n) {
   const slots = Object.getOwnPropertyNames(onDisk.kvs);
   const recordLengths = new Set(slots.map((s) => onDisk.kvs[s].length));
 
-  console.log(`\n  Vault seeded with ${ENTRIES.length} entries.`);
+  console.log(`\n  Demo vault seeded with ${ENTRIES.length} entries.`);
   console.log(`  Master password: ${MASTER}\n`);
 
   console.log(`  ${pad("DOMAIN", 22)}${pad("PASSWORD", 66)}${pad("CHARS", 7)}ON DISK`);
@@ -95,10 +98,10 @@ function pad(s, n) {
   console.log(`  Record lengths on disk: ${[...recordLengths].join(", ")} -- all identical.`);
   console.log(`  Vault size: ${Buffer.byteLength(repr)} bytes serialized, ${dbBytes} bytes in vault.db`);
   console.log(`  Trusted checksum: ${checksum}`);
-  console.log(`\n  Now run:  npm start      and unlock with "${MASTER}"\n`);
+  console.log(`\n  Now run:  npm start      pick "demo" and unlock with "${MASTER}"\n`);
 })().catch((e) => {
   if (e && (e.code === "EPERM" || e.code === "EBUSY")) {
-    console.error("\n  Seeding failed: the vault database is in use. Stop the server (Ctrl+C) and try again.\n");
+    console.error("\n  Seeding failed: the demo vault is open in the server. Switch the app to another vault, or stop the server (Ctrl+C), and try again.\n");
     process.exit(1);
   }
   console.error("\n  Seeding failed:", typeof e === "string" ? e : e.message, "\n");

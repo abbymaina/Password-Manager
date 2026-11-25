@@ -10,7 +10,8 @@
  * Run:  node frontend/server.js     then open http://localhost:3000
  *
  * No npm dependencies -- Node's built-in http/fs/crypto/sqlite only.
- * The vault is stored in SQLite (frontend/vault/vault.db); see db.js.
+ * Each vault is a SQLite database in its own folder, frontend/vault/<name>/;
+ * see db.js. One vault is selected at a time.
  */
 
 const http = require("http");
@@ -19,13 +20,27 @@ const path = require("path");
 const crypto = require("crypto");
 
 const { Keychain } = require("../password-manager");
-const { VaultStore } = require("./db");
+const { VaultStore, isValidName, listVaults, migrateSingleVault } = require("./db");
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, "public");
-const VAULT_DIR = path.join(__dirname, "vault");
+const VAULT_ROOT = path.join(__dirname, "vault");
 
-const store = new VaultStore(VAULT_DIR);
+migrateSingleVault(VAULT_ROOT);
+
+/* ---- which vault is selected ---- */
+
+let current = null;   // name of the selected vault
+let store = null;     // its VaultStore (only the selected vault's database is open)
+
+function select(name) {
+  if (store) store.close();
+  current = name;
+  store = name ? new VaultStore(path.join(VAULT_ROOT, name)) : null;
+}
+
+const existing = listVaults(VAULT_ROOT);
+select(existing.includes("demo") ? "demo" : existing[0] || null);
 
 /* ---- session state (memory only; cleared when the vault is locked) ---- */
 
@@ -39,7 +54,7 @@ function sha256Base64(text) {
 }
 
 function vaultExists() {
-  return store.hasVault();
+  return store !== null && store.hasVault();
 }
 
 function readVault() {
@@ -88,6 +103,8 @@ function inspectDisk() {
 
 function getState() {
   return {
+    vaults: listVaults(VAULT_ROOT),
+    current,
     vaultExists: vaultExists(),
     unlocked: keychain !== null,
     domains: keychain ? sessionDomains : [],
@@ -105,10 +122,27 @@ const routes = {
 
   "GET /api/state": async () => getState(),
 
-  "POST /api/create": async (body) => {
-    if (!body.password) throw "Enter a master password.";
-    keychain = await Keychain.init(body.password);
+  "POST /api/select": async (body) => {
+    if (!listVaults(VAULT_ROOT).includes(body.vault)) throw "No vault with that name.";
+    keychain = null;
     sessionDomains = [];
+    select(body.vault);
+    return { selected: body.vault };
+  },
+
+  "POST /api/create": async (body) => {
+    const name = String(body.vault || "").trim().toLowerCase();
+    if (!isValidName(name)) {
+      throw "Vault names use 1–32 lowercase letters, digits, - or _, starting with a letter or digit.";
+    }
+    if (listVaults(VAULT_ROOT).includes(name)) throw `A vault called "${name}" already exists.`;
+    if (!body.password) throw "Enter a master password.";
+
+    const kc = await Keychain.init(body.password);
+    keychain = null;
+    sessionDomains = [];
+    select(name);
+    keychain = kc;
     await persist();
     // A brand-new vault has no earlier version to roll back to.
     store.clearSnapshots();
@@ -200,6 +234,7 @@ const routes = {
   },
 
   "POST /api/attack/rollback": async () => {
+    if (!vaultExists()) throw "No vault to attack.";
     const prev = store.getSnapshot("previous");
     if (!prev) {
       throw "Save at least two changes first, so there is an earlier version to restore.";
@@ -215,6 +250,7 @@ const routes = {
   },
 
   "POST /api/restore": async () => {
+    if (!store) throw "No vault selected.";
     const good = store.getSnapshot("known-good");
     if (!good) throw "No clean copy saved yet.";
     store.writeRepr(good.repr);
@@ -275,7 +311,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`\n  Keychain front end running at http://localhost:${PORT}`);
-  console.log(`  Vault database: ${store.dbFile}`);
-  console.log(`  Trusted checksum: ${store.checksumFile}`);
+  const names = listVaults(VAULT_ROOT);
+  console.log(`  Vaults in ${VAULT_ROOT}: ${names.length ? names.join(", ") : "(none yet)"}`);
   console.log(`  Press Ctrl+C to stop.\n`);
 });
