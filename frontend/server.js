@@ -9,7 +9,8 @@
  *
  * Run:  node frontend/server.js     then open http://localhost:3000
  *
- * No npm dependencies -- Node's built-in http/fs/crypto only.
+ * No npm dependencies -- Node's built-in http/fs/crypto/sqlite only.
+ * The vault is stored in SQLite (frontend/vault/vault.db); see db.js.
  */
 
 const http = require("http");
@@ -18,16 +19,13 @@ const path = require("path");
 const crypto = require("crypto");
 
 const { Keychain } = require("../password-manager");
+const { VaultStore } = require("./db");
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, "public");
 const VAULT_DIR = path.join(__dirname, "vault");
 
-const VAULT_FILE = path.join(VAULT_DIR, "vault.json");
-const CHECKSUM_FILE = path.join(VAULT_DIR, "trusted-checksum.txt");
-const PREV_FILE = path.join(VAULT_DIR, "vault.previous.json");
-const GOOD_FILE = path.join(VAULT_DIR, "vault.known-good.json");
-const GOOD_CHECKSUM = path.join(VAULT_DIR, "vault.known-good.checksum.txt");
+const store = new VaultStore(VAULT_DIR);
 
 /* ---- session state (memory only; cleared when the vault is locked) ---- */
 
@@ -41,64 +39,50 @@ function sha256Base64(text) {
 }
 
 function vaultExists() {
-  return fs.existsSync(VAULT_FILE) && fs.existsSync(CHECKSUM_FILE);
+  return store.hasVault();
 }
 
-function readVaultFiles() {
-  return {
-    repr: fs.readFileSync(VAULT_FILE, "utf8"),
-    checksum: fs.readFileSync(CHECKSUM_FILE, "utf8").trim()
-  };
+function readVault() {
+  return { repr: store.readRepr(), checksum: store.readChecksum() };
 }
 
 /**
- * Writes the keychain to "disk". The checksum goes in a separate file,
+ * Writes the keychain to the database. The checksum goes in a separate file,
  * standing in for the trusted storage the handout assumes (a flash drive
  * on the user's person).
  */
 async function persist() {
-  fs.mkdirSync(VAULT_DIR, { recursive: true });
-
   // Keep the previous state so the rollback attack has something to roll back to.
-  if (fs.existsSync(VAULT_FILE)) {
-    fs.copyFileSync(VAULT_FILE, PREV_FILE);
-  }
+  const current = store.readRepr();
+  if (current !== null) store.setSnapshot("previous", current);
 
   const [repr, checksum] = await keychain.dump();
-  fs.writeFileSync(VAULT_FILE, repr);
-  fs.writeFileSync(CHECKSUM_FILE, checksum);
+  store.writeRepr(repr);
+  store.writeChecksum(checksum);
 
   // A clean copy so a simulated attack can be undone.
-  fs.writeFileSync(GOOD_FILE, repr);
-  fs.writeFileSync(GOOD_CHECKSUM, checksum);
+  store.setSnapshot("known-good", repr, checksum);
 }
 
 /**
- * Describes what is actually stored on disk, for the right-hand panel.
+ * Describes what is actually stored in the database, for the right-hand panel.
  * Everything here is what an adversary with the disk would see.
  */
 function inspectDisk() {
   if (!vaultExists()) {
     return { exists: false, records: [], checksum: null, salt: null };
   }
-  const { repr, checksum } = readVaultFiles();
-  let parsed;
-  try {
-    parsed = JSON.parse(repr);
-  } catch (e) {
-    return { exists: true, corrupt: true, records: [], checksum, salt: null };
-  }
-  const records = Object.getOwnPropertyNames(parsed.kvs || {}).map((slot) => ({
-    slot,
-    data: parsed.kvs[slot],
-    length: String(parsed.kvs[slot]).length
+  const records = store.records().map((r) => ({
+    slot: r.slot,
+    data: r.ciphertext,
+    length: r.ciphertext.length
   }));
   return {
     exists: true,
     records,
-    checksum,
-    salt: parsed.salt || null,
-    bytesOnDisk: Buffer.byteLength(repr)
+    checksum: store.readChecksum(),
+    salt: store.salt(),
+    bytesOnDisk: store.sizeBytes()
   };
 }
 
@@ -122,16 +106,16 @@ const routes = {
     keychain = await Keychain.init(body.password);
     sessionDomains = [];
     // Clear any stale attack artifacts from a previous run.
-    for (const f of [PREV_FILE, GOOD_FILE, GOOD_CHECKSUM]) {
-      if (fs.existsSync(f)) fs.unlinkSync(f);
-    }
+    store.clearSnapshots();
     await persist();
+    store.clearSnapshots();   // a brand-new vault has no earlier version
+    store.setSnapshot("known-good", ...(await keychain.dump()));
     return { unlocked: true };
   },
 
   "POST /api/unlock": async (body) => {
     if (!vaultExists()) throw "No vault on disk yet. Create one first.";
-    const { repr, checksum } = readVaultFiles();
+    const { repr, checksum } = readVault();
     // The checksum comes from trusted storage, so it is always supplied here.
     keychain = await Keychain.load(body.password, repr, checksum);
     sessionDomains = [];
@@ -181,18 +165,12 @@ const routes = {
 
   "POST /api/attack/swap": async () => {
     if (!vaultExists()) throw "No vault to attack.";
-    const { repr } = readVaultFiles();
-    const obj = JSON.parse(repr);
-    const slots = Object.getOwnPropertyNames(obj.kvs);
-    if (slots.length < 2) throw "Store at least two entries before swapping.";
+    const rows = store.records();
+    if (rows.length < 2) throw "Store at least two entries before swapping.";
 
-    const tmp = obj.kvs[slots[0]];
-    obj.kvs[slots[0]] = obj.kvs[slots[1]];
-    obj.kvs[slots[1]] = tmp;
-
-    const tampered = JSON.stringify(obj);
-    fs.writeFileSync(VAULT_FILE, tampered);
-    fs.writeFileSync(CHECKSUM_FILE, sha256Base64(tampered)); // checksum made to agree
+    // UPDATE the two rows directly, as someone with the database file would.
+    store.swapCiphertexts(rows[0].slot, rows[1].slot);
+    store.writeChecksum(sha256Base64(store.readRepr())); // checksum made to agree
 
     keychain = null;
     sessionDomains = [];
@@ -203,18 +181,13 @@ const routes = {
 
   "POST /api/attack/tamper": async () => {
     if (!vaultExists()) throw "No vault to attack.";
-    const { repr } = readVaultFiles();
-    const obj = JSON.parse(repr);
-    const slots = Object.getOwnPropertyNames(obj.kvs);
-    if (slots.length < 1) throw "Store an entry before tampering.";
+    const rows = store.records();
+    if (rows.length < 1) throw "Store an entry before tampering.";
 
-    const bytes = Buffer.from(obj.kvs[slots[0]], "base64");
+    const bytes = Buffer.from(rows[0].ciphertext, "base64");
     bytes[bytes.length - 1] ^= 0xff;
-    obj.kvs[slots[0]] = bytes.toString("base64");
-
-    const tampered = JSON.stringify(obj);
-    fs.writeFileSync(VAULT_FILE, tampered);
-    fs.writeFileSync(CHECKSUM_FILE, sha256Base64(tampered)); // checksum made to agree
+    store.setCiphertext(rows[0].slot, bytes.toString("base64"));
+    store.writeChecksum(sha256Base64(store.readRepr())); // checksum made to agree
 
     keychain = null;
     sessionDomains = [];
@@ -224,11 +197,12 @@ const routes = {
   },
 
   "POST /api/attack/rollback": async () => {
-    if (!fs.existsSync(PREV_FILE)) {
+    const prev = store.getSnapshot("previous");
+    if (!prev) {
       throw "Save at least two changes first, so there is an earlier version to restore.";
     }
     // The adversary restores an old vault but cannot reach the trusted checksum.
-    fs.copyFileSync(PREV_FILE, VAULT_FILE);
+    store.writeRepr(prev.repr);
 
     keychain = null;
     sessionDomains = [];
@@ -238,9 +212,10 @@ const routes = {
   },
 
   "POST /api/restore": async () => {
-    if (!fs.existsSync(GOOD_FILE)) throw "No clean copy saved yet.";
-    fs.copyFileSync(GOOD_FILE, VAULT_FILE);
-    fs.copyFileSync(GOOD_CHECKSUM, CHECKSUM_FILE);
+    const good = store.getSnapshot("known-good");
+    if (!good) throw "No clean copy saved yet.";
+    store.writeRepr(good.repr);
+    store.writeChecksum(good.checksum);
     keychain = null;
     sessionDomains = [];
     return { restored: true };
@@ -307,6 +282,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`\n  Keychain front end running at http://localhost:${PORT}`);
-  console.log(`  Vault files: ${VAULT_DIR}`);
+  console.log(`  Vault database: ${store.dbFile}`);
+  console.log(`  Trusted checksum: ${store.checksumFile}`);
   console.log(`  Press Ctrl+C to stop.\n`);
 });

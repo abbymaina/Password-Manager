@@ -14,10 +14,10 @@ npm start
 
 Then open <http://localhost:3000>. Stop with Ctrl+C.
 
-No npm packages are needed — the server uses only Node's built-in `http`, `fs` and
-`crypto`.
+No npm packages are needed — the server uses only Node's built-in `http`, `fs`,
+`crypto` and `sqlite` (Node 22.13 or newer).
 
-To fill the vault with demo data first:
+To fill the vault with demo data (stop the server first):
 
 ```
 npm run seed              # master password: demo1234
@@ -40,11 +40,15 @@ npm run seed -- mypw      # or choose your own
 The handout (§2.1) deliberately leaves out the disk layer: the library serializes to a
 string instead of writing a file. The front end supplies that layer:
 
-- `frontend/vault/vault.json` — the output of `dump()[0]`
-- `frontend/vault/trusted-checksum.txt` — the output of `dump()[1]`, kept in a separate
-  file to stand in for the trusted storage the rollback defense assumes
+- `frontend/vault/vault.db` — a SQLite database holding the output of `dump()[0]`, split
+  into `vault_meta` (salt, verifier), `records` (one row per slot) and `snapshots`
+  (earlier versions for the attack demos); see `db.js`
+- `frontend/vault/trusted-checksum.txt` — the output of `dump()[1]`, kept outside the
+  database to stand in for the trusted storage the rollback defense assumes
 
-Both are recreated on first run. Delete the `vault/` folder to start over.
+Both are recreated on first run. Stop the server and delete the `vault/` folder to start
+over. An older `vault.json` vault is imported automatically the first time the server
+starts, and the original files are moved to `vault/legacy-json/`.
 
 ## Why there is no list of saved domains
 

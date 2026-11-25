@@ -15,13 +15,9 @@ const fs = require("fs");
 const path = require("path");
 
 const { Keychain } = require("../password-manager");
+const { VaultStore } = require("./db");
 
 const VAULT_DIR = path.join(__dirname, "vault");
-const VAULT_FILE = path.join(VAULT_DIR, "vault.json");
-const CHECKSUM_FILE = path.join(VAULT_DIR, "trusted-checksum.txt");
-const PREV_FILE = path.join(VAULT_DIR, "vault.previous.json");
-const GOOD_FILE = path.join(VAULT_DIR, "vault.known-good.json");
-const GOOD_CHECKSUM = path.join(VAULT_DIR, "vault.known-good.checksum.txt");
 
 const MASTER = process.argv[2] || "demo1234";
 
@@ -51,7 +47,7 @@ function pad(s, n) {
 (async () => {
   // Start from a clean vault so the demo is reproducible.
   fs.rmSync(VAULT_DIR, { recursive: true, force: true });
-  fs.mkdirSync(VAULT_DIR, { recursive: true });
+  const store = new VaultStore(VAULT_DIR);
 
   const keychain = await Keychain.init(MASTER);
 
@@ -60,10 +56,9 @@ function pad(s, n) {
   }
 
   const [repr, checksum] = await keychain.dump();
-  fs.writeFileSync(VAULT_FILE, repr);
-  fs.writeFileSync(CHECKSUM_FILE, checksum);
-  fs.writeFileSync(GOOD_FILE, repr);
-  fs.writeFileSync(GOOD_CHECKSUM, checksum);
+  store.writeRepr(repr);
+  store.writeChecksum(checksum);
+  store.setSnapshot("known-good", repr, checksum);
 
   // Give the rollback demo an earlier version to restore: the same vault
   // without the last two entries.
@@ -71,7 +66,9 @@ function pad(s, n) {
   await partial.remove("x.com");
   await partial.remove("localhost");
   const [prevRepr] = await partial.dump();
-  fs.writeFileSync(PREV_FILE, prevRepr);
+  store.setSnapshot("previous", prevRepr);
+  const dbBytes = store.sizeBytes();
+  store.close();
 
   // ---- report ----
 
@@ -93,10 +90,14 @@ function pad(s, n) {
 
   console.log(`\n  Password lengths range from 1 to 64 characters.`);
   console.log(`  Record lengths on disk: ${[...recordLengths].join(", ")} -- all identical.`);
-  console.log(`  Vault size: ${Buffer.byteLength(repr)} bytes`);
+  console.log(`  Vault size: ${Buffer.byteLength(repr)} bytes serialized, ${dbBytes} bytes in vault.db`);
   console.log(`  Trusted checksum: ${checksum}`);
   console.log(`\n  Now run:  npm start      and unlock with "${MASTER}"\n`);
 })().catch((e) => {
+  if (e && (e.code === "EPERM" || e.code === "EBUSY")) {
+    console.error("\n  Seeding failed: the vault database is in use. Stop the server (Ctrl+C) and try again.\n");
+    process.exit(1);
+  }
   console.error("\n  Seeding failed:", typeof e === "string" ? e : e.message, "\n");
   process.exit(1);
 });

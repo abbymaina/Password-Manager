@@ -21,7 +21,8 @@ so the library has no third-party dependencies.
 
 ## How to run it
 
-**Requirements:** Node.js 18 or newer (developed with Node 26) and npm.
+**Requirements:** Node.js 18 or newer (developed with Node 26) and npm. The web front end
+needs Node 22.13 or newer, because it uses Node's built-in SQLite module.
 
 ```
 npm install      # installs the test tools (mocha, expect.js)
@@ -39,14 +40,15 @@ npm start        # serves the app at http://localhost:3000
 Open <http://localhost:3000>. On the first visit, choose a master password to create a new
 vault. Stop the server with Ctrl+C.
 
-To start with sample data, run this before `npm start`:
+To start with sample data, stop the server and run:
 
 ```
 npm run seed              # master password: demo1234
 npm run seed -- mypw      # or choose your own
 ```
 
-The vault is saved in `frontend/vault/`. To start over, delete that folder. See
+The vault is saved in a SQLite database, `frontend/vault/vault.db`. To start over, stop the
+server and delete the `frontend/vault/` folder. See
 [frontend/README.md](frontend/README.md) for more on the web app.
 
 ## Using the library
@@ -119,12 +121,29 @@ the checksum, and the checksum alone is enough to detect a rollback.
 
 ## Web front end
 
-`frontend/server.js` is a small server built only on Node's built-in `http`, `fs` and
-`crypto` modules. It wraps the library and adds a disk layer:
+`frontend/server.js` is a small server built only on Node's built-in `http`, `fs`,
+`crypto` and `sqlite` modules. It wraps the library and adds a storage layer
+(`frontend/db.js`):
 
-- `frontend/vault/vault.json` holds the output of `dump()[0]`.
-- `frontend/vault/trusted-checksum.txt` holds `dump()[1]` in a separate file. It stands in
-  for the trusted storage that the rollback defense assumes.
+- `frontend/vault/vault.db` is a SQLite database that holds the output of `dump()[0]`,
+  split into tables:
+
+  | Table | Contents |
+  | --- | --- |
+  | `vault_meta` | One row: the PBKDF2 salt and the password verifier |
+  | `records` | One row per entry: `slot` (HMAC of the domain) and `ciphertext` (IV ‖ AES-GCM) |
+  | `snapshots` | Earlier vault versions, used by the rollback demo and the repair button |
+
+  On every load the server rebuilds the exact `dump()` string from these rows, and every
+  save checks that the rebuilt string matches, so the checksum still lines up.
+- `frontend/vault/trusted-checksum.txt` holds `dump()[1]` and is kept **outside** the
+  database. It stands in for the trusted storage that the rollback defense assumes. If it
+  were stored in the same database, an attacker who rolled the database back would roll
+  back the checksum with it.
+
+You can open the database with any SQLite tool (for example `sqlite3 frontend/vault/vault.db
+"SELECT * FROM records"`). It contains only HMACs and ciphertexts, the same data an attacker
+would see.
 
 The page can generate random passwords and look up, copy and delete entries. It also has
 buttons that **simulate attacks** on the saved vault (swap two records, flip one byte,
